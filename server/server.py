@@ -5,10 +5,15 @@ import time
 import schedule
 import os
 from dotenv import load_dotenv
+from flask import Flask, jsonify, request
 
 # Load environment variables from .env file
 load_dotenv()
 
+# Set up Flask
+app = Flask(__name__)
+
+# Set up MongoDB connection
 mongo_uri = os.getenv('MONGO_CONNECTION_STRING')
 client = MongoClient(mongo_uri)
 db = client[os.getenv('DATABASE_NAME')]
@@ -46,6 +51,21 @@ def update_database(stock_updates):
     except Exception as e:
         print(f"Error updating database: {e}")
 
+@app.route('/api/stocks/<symbol>', methods=['GET'])
+def get_stock(symbol):
+    try:
+        stock = stock_collection.find_one({"symbol": symbol.upper()})
+        if stock:
+            return jsonify({
+                "symbol": stock["symbol"],
+                "price": stock["price"],
+                "timestamp": stock["timestamp"]
+            })
+        else:
+            return jsonify({"error": "Stock not found"}), 404
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {e}"}), 500
+
 def job():
     stock_updates = fetch_and_update_stocks(stock_symbols)
     if stock_updates:
@@ -55,10 +75,20 @@ def job():
 stock_symbols = ["AAPL", "MSFT", "GOOGL"]  # Eventually will pull list from elsewhere (db or .txt file)
 
 # Schedule the job to run every minute
-schedule.every(.05).minutes.do(job)
+schedule.every(.5).minutes.do(job)
 
 if __name__ == "__main__":
     print("Starting stock update service...")
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+
+    # Start the scheduled job in a separate thread or process
+    import threading
+    def run_scheduler():
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+
+    scheduler_thread = threading.Thread(target=run_scheduler)
+    scheduler_thread.start()
+
+    # Start Flask application
+    app.run(port=5000, debug=True)
